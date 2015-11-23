@@ -1,0 +1,375 @@
+[1]	Change settings like follows on Control Node.
+[root@dlp ~(keystone)]# vi /etc/neutron/plugins/ml2/ml2_conf.ini
+# near line 64: add
+[ml2_type_vlan]
+network_vlan_ranges = physnet1:1000:2999
+[root@dlp ~(keystone)]# systemctl restart neutron-server 
+
+
+[2]	Change settings like follows on both Network Node and Compute Node.
+[root@network ~]# ovs-vsctl add-br br-eth1 # add a bridge
+[root@network ~]# ovs-vsctl add-port br-eth1 eth1 # add eth1 to the port of the bridge above
+[root@network ~]# vi /etc/neutron/plugins/ml2/ml2_conf.ini
+# near line 64: add
+[ml2_type_vlan]
+network_vlan_ranges = physnet1:1000:2999
+# add to the end
+[ovs]
+tenant_network_type = vlan
+bridge_mappings = physnet1:br-eth1
+[root@network ~]# systemctl restart neutron-openvswitch-agent 
+
+
+[3]	Create and define a bridge for external network on Network Node.
+[root@network ~]# ovs-vsctl add-br br-ext 
+[root@network ~]# ovs-vsctl add-port br-ext eth2 
+[root@network ~]# vi /etc/neutron/l3_agent.ini
+
+# line 63: add
+external_network_bridge = br-ext  /* single node br-eth1 */
+
+[root@network ~]# systemctl restart neutron-l3-agent 
+[4]	Create a Virtual router. It's OK to work on any node. (This example is on Control Node)
+# create a virtual router
+[root@dlp ~(keystone)]# neutron router-create router01 
+Created a new router:
++-----------------------+--------------------------------------+
+| Field                 | Value                                |
++-----------------------+--------------------------------------+
+| admin_state_up        | True                                 |
+| distributed           | False                                |
+| external_gateway_info |                                      |
+| ha                    | False                                |
+| id                    | 9d362215-af00-4a10-a7e3-beb47fdedea6 |
+| name                  | router01                             |
+| routes                |                                      |
+| status                | ACTIVE                               |
+| tenant_id             | 98ea1b896d3a48438922c0dfa9f6bc52     |
++-----------------------+--------------------------------------+
+
+
+[root@dlp ~(keystone)]# Router_ID=`neutron router-list | grep router01 | awk '{ print $2 }'` 
+[5]	Create internal network and associate with the router above.
+# create internal network
+[root@dlp ~(keystone)]# neutron net-create int_net 
+Created a new network:
++---------------------------+--------------------------------------+
+| Field                     | Value                                |
++---------------------------+--------------------------------------+
+| admin_state_up            | True                                 |
+| id                        | 0d4247d2-cd7f-41f3-b3cc-b9db2d96db8c |
+| mtu                       | 0                                    |
+| name                      | int_net                              |
+| provider:network_type     | vlan                                 |
+| provider:physical_network | physnet1                             |
+| provider:segmentation_id  | 1000                                 |
+| router:external           | False                                |
+| shared                    | False                                |
+| status                    | ACTIVE                               |
+| subnets                   |                                      |
+| tenant_id                 | 98ea1b896d3a48438922c0dfa9f6bc52     |
++---------------------------+--------------------------------------+
+
+# create subnet in the internal network
+[root@dlp ~(keystone)]# neutron subnet-create \
+--gateway 192.168.100.1 --dns-nameserver 10.0.0.1 int_net 192.168.100.0/24 
+Created a new subnet:
++-------------------+------------------------------------------------------+
+| Field             | Value                                                |
++-------------------+------------------------------------------------------+
+| allocation_pools  | {"start": "192.168.100.2", "end": "192.168.100.254"} |
+| cidr              | 192.168.100.0/24                                     |
+| dns_nameservers   | 10.0.0.1                                             |
+| enable_dhcp       | True                                                 |
+| gateway_ip        | 192.168.100.1                                        |
+| host_routes       |                                                      |
+| id                | 235a7d8b-6d99-4fa1-a25b-8913d4e80606                 |
+| ip_version        | 4                                                    |
+| ipv6_address_mode |                                                      |
+| ipv6_ra_mode      |                                                      |
+| name              |                                                      |
+| network_id        | 0d4247d2-cd7f-41f3-b3cc-b9db2d96db8c                 |
+| subnetpool_id     |                                                      |
+| tenant_id         | 98ea1b896d3a48438922c0dfa9f6bc52                     |
++-------------------+------------------------------------------------------+
+
+[root@dlp ~(keystone)]# Int_Subnet_ID=`neutron net-list | grep int_net | awk '{ print $6 }'`
+# set internal network to the router above
+[root@dlp ~(keystone)]# neutron router-interface-add $Router_ID $Int_Subnet_ID 
+Added interface 541bc5cf-f344-4f5e-af93-3ccac8e3963c to router 9d362215-af00-4a10-a7e3-beb47fdedea6.
+[6]	Create external network and associate with the router above.
+# create external network
+[root@dlp ~(keystone)]# neutron net-create ext_net --router:external 
+Created a new network:
++---------------------------+--------------------------------------+
+| Field                     | Value                                |
++---------------------------+--------------------------------------+
+| admin_state_up            | True                                 |
+| id                        | 927caf93-cf92-4cec-a882-2ccdbc9edf90 |
+| mtu                       | 0                                    |
+| name                      | ext_net                              |
+| provider:network_type     | vlan                                 |
+| provider:physical_network | physnet1                             |
+| provider:segmentation_id  | 1001                                 |
+| router:external           | True                                 |
+| shared                    | False                                |
+| status                    | ACTIVE                               |
+| subnets                   |                                      |
+| tenant_id                 | 98ea1b896d3a48438922c0dfa9f6bc52     |
++---------------------------+--------------------------------------+
+
+# create subnet in external network
+[root@dlp ~(keystone)]# neutron subnet-create ext_net \
+--allocation-pool start=10.0.0.200,end=10.0.0.254 \
+--gateway 10.0.0.1 --dns-nameserver 10.0.0.1 10.0.0.0/24 --disable-dhcp 
+Created a new subnet:
++-------------------+----------------------------------------------+
+| Field             | Value                                        |
++-------------------+----------------------------------------------+
+| allocation_pools  | {"start": "10.0.0.200", "end": "10.0.0.254"} |
+| cidr              | 10.0.0.0/24                                  |
+| dns_nameservers   | 10.0.0.1                                     |
+| enable_dhcp       | False                                        |
+| gateway_ip        | 10.0.0.1                                     |
+| host_routes       |                                              |
+| id                | 1643ad3a-e492-4ffd-be2e-f8351ea6e75f         |
+| ip_version        | 4                                            |
+| ipv6_address_mode |                                              |
+| ipv6_ra_mode      |                                              |
+| name              |                                              |
+| network_id        | 927caf93-cf92-4cec-a882-2ccdbc9edf90         |
+| subnetpool_id     |                                              |
+| tenant_id         | 98ea1b896d3a48438922c0dfa9f6bc52             |
++-------------------+----------------------------------------------+
+
+[root@dlp ~(keystone)]# Ext_Net_ID=`neutron net-list | grep ext_net | awk '{ print $2 }'` 
+# set gateway to the router above
+[root@dlp ~(keystone)]# neutron router-gateway-set $Router_ID $Ext_Net_ID 
+Set gateway for router 9d362215-af00-4a10-a7e3-beb47fdedea6
+[7]	Create and start Virtual machine Instance.
+[root@dlp ~(keystone)]# Int_Net_ID=`neutron net-list | grep int_net | awk '{ print $2 }'` 
+[root@dlp ~(keystone)]# nova image-list 
++--------------------------------------+---------+--------+--------+
+| ID                                   | Name    | Status | Server |
++--------------------------------------+---------+--------+--------+
+| 2aab2d1a-e1e8-45c9-81a0-0c76a3c98ee5 | CentOS7 | ACTIVE |        |
++--------------------------------------+---------+--------+--------+
+
+[root@dlp ~(keystone)]# nova boot --flavor 2 --image CentOS7 --security_group default --nic net-id=$Int_Net_ID CentOS_7 
+[root@dlp ~(keystone)]# nova list 
++-----------+----------+--------+------------+-------------+-----------------------+
+| ID        | Name     | Status | Task State | Power State | Networks              |
++-----------+----------+--------+------------+-------------+-----------------------+
+| 2c7a1025- | CentOS_7 | ACTIVE | -          | Running     | int_net=192.168.100.3 |
++-----------+----------+--------+------------+-------------+-----------------------+
+[8]	Assign floating IP address to the Instance above.
+[root@dlp ~(keystone)]# neutron floatingip-create ext_net 
+Created a new floatingip:
++---------------------+--------------------------------------+
+| Field               | Value                                |
++---------------------+--------------------------------------+
+| fixed_ip_address    |                                      |
+| floating_ip_address | 10.0.0.201                           |
+| floating_network_id | 927caf93-cf92-4cec-a882-2ccdbc9edf90 |
+| id                  | 062038fd-a991-4a7b-860d-14fe8b24f8b1 |
+| port_id             |                                      |
+| router_id           |                                      |
+| status              | DOWN                                 |
+| tenant_id           | 98ea1b896d3a48438922c0dfa9f6bc52     |
++---------------------+--------------------------------------+
+
+[root@dlp ~(keystone)]# Device_ID=`nova list | grep CentOS_7 | awk '{ print $2 }'` 
+[root@dlp ~(keystone)]# Port_ID=`neutron port-list -- --device_id $Device_ID | grep 192.168.100.3 | awk '{ print $2 }'` 
+[root@dlp ~(keystone)]# Floating_ID=`neutron floatingip-list | grep 10.0.0.201 | awk '{ print $2 }'` 
+[root@dlp ~(keystone)]# neutron floatingip-associate $Floating_ID $Port_ID 
+Associated floating IP 062038fd-a991-4a7b-860d-14fe8b24f8b1
+# confirm settings
+[root@dlp ~(keystone)]# neutron floatingip-show $Floating_ID 
++---------------------+--------------------------------------+
+| Field               | Value                                |
++---------------------+--------------------------------------+
+| fixed_ip_address    | 192.168.100.3                        |
+| floating_ip_address | 10.0.0.201                           |
+| floating_network_id | 927caf93-cf92-4cec-a882-2ccdbc9edf90 |
+| id                  | 062038fd-a991-4a7b-860d-14fe8b24f8b1 |
+| port_id             | a75e9784-7c5a-43dd-8416-0afd44cb0070 |
+| router_id           | 9d362215-af00-4a10-a7e3-beb47fdedea6 |
+| status              | ACTIVE                               |
+| tenant_id           | 98ea1b896d3a48438922c0dfa9f6bc52     |
++---------------------+--------------------------------------+
+[9]	Configure security settings like follows to access with SSH and ICMP.
+# permit ICMP
+[root@dlp ~(keystone)]# neutron security-group-rule-create --direction ingress --protocol icmp default 
+Created a new security_group_rule:
++-------------------+--------------------------------------+
+| Field             | Value                                |
++-------------------+--------------------------------------+
+| direction         | ingress                              |
+| ethertype         | IPv4                                 |
+| id                | 8ab227d0-fac6-404f-a482-51bc976d1575 |
+| port_range_max    |                                      |
+| port_range_min    |                                      |
+| protocol          | icmp                                 |
+| remote_group_id   |                                      |
+| remote_ip_prefix  |                                      |
+| security_group_id | bb435945-4e05-4394-a780-f6e1fb9ca942 |
+| tenant_id         | 98ea1b896d3a48438922c0dfa9f6bc52     |
++-------------------+--------------------------------------+
+
+# permit SSH
+[root@dlp ~(keystone)]# neutron security-group-rule-create --direction ingress --protocol tcp --port_range_min 22 --port_range_max 22 default 
+Created a new security_group_rule:
++-------------------+--------------------------------------+
+| Field             | Value                                |
++-------------------+--------------------------------------+
+| direction         | ingress                              |
+| ethertype         | IPv4                                 |
+| id                | d0d5214d-2334-4a60-80af-5a7cd643d7d8 |
+| port_range_max    | 22                                   |
+| port_range_min    | 22                                   |
+| protocol          | tcp                                  |
+| remote_group_id   |                                      |
+| remote_ip_prefix  |                                      |
+| security_group_id | bb435945-4e05-4394-a780-f6e1fb9ca942 |
+| tenant_id         | 98ea1b896d3a48438922c0dfa9f6bc52     |
++-------------------+--------------------------------------+
+
+[root@dlp ~(keystone)]# neutron security-group-rule-list 
++--------------------------------------+----------------+-----------+----------+------------------+--------------+
+| id                                   | security_group | direction | protocol | remote_ip_prefix | remote_group |
++--------------------------------------+----------------+-----------+----------+------------------+--------------+
+| 13b520a3-ddac-4947-84cd-729aaa0312ee | default        | egress    |          |                  |              |
+| 5462edf6-6728-4f1e-b69f-0067a0269483 | default        | ingress   |          |                  | default      |
+| 8ab227d0-fac6-404f-a482-51bc976d1575 | default        | ingress   | icmp     |                  |              |
+| 9932dc71-3be7-4881-9b9b-1a2a9374ecaf | default        | ingress   |          |                  | default      |
+| d0d5214d-2334-4a60-80af-5a7cd643d7d8 | default        | ingress   | tcp      |                  |              |
+| fb494738-bedb-46d6-a6cb-f15b3c6979a0 | default        | egress    |          |                  |              |
++--------------------------------------+----------------+-----------+----------+------------------+--------------+
+[10]	It's possible to login to the Instance to connect to the IP address with SSH like follows.
+[root@dlp ~(keystone)]# ssh 10.0.0.201 
+The authenticity of host '10.0.0.201 (10.0.0.201)' can't be established.
+ECDSA key fingerprint is 50:9a:4d:de:6a:9b:8f:ec:7e:27:7a:69:6c:12:c7:3d.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added '10.0.0.201' (ECDSA) to the list of known hosts.
+root@10.0.0.201's password:
+Last login: Sun Jun 14 21:44:17 2015
+[root@host-192-168-100-3 ~]# # just logined
+==============================================
+
+[root@localhost ~(keystone_admin)]# neutron net-list
++--------------------------------------+---------+-------------------------------------------------------+
+| id                                   | name    | subnets                                               |
++--------------------------------------+---------+-------------------------------------------------------+
+| 378d5641-ff76-4ea4-968d-41e5a3d90706 | ext     | 74ecfb25-05e2-4c5d-a412-72e32a08f7f4 10.19.14.0/24    |
+| f42f1e2d-5783-4c75-9545-96ab67b7e28d | int_net | 31487d7e-9b00-4408-8988-2a98ffdb7e67 192.168.100.0/24 |
++--------------------------------------+---------+-------------------------------------------------------+
+[root@localhost ~(keystone_admin)]#
+[root@localhost ~(keystone_admin)]# neutron net-list
++--------------------------------------+---------+-------------------------------------------------------+
+| id                                   | name    | subnets                                               |
++--------------------------------------+---------+-------------------------------------------------------+
+| 378d5641-ff76-4ea4-968d-41e5a3d90706 | ext     | 74ecfb25-05e2-4c5d-a412-72e32a08f7f4 10.19.14.0/24    |
+| f42f1e2d-5783-4c75-9545-96ab67b7e28d | int_net | 31487d7e-9b00-4408-8988-2a98ffdb7e67 192.168.100.0/24 |
++--------------------------------------+---------+-------------------------------------------------------+
+[root@localhost ~(keystone_admin)]# neutron net-show ext
++---------------------------+--------------------------------------+
+| Field                     | Value                                |
++---------------------------+--------------------------------------+
+| admin_state_up            | True                                 |
+| id                        | 378d5641-ff76-4ea4-968d-41e5a3d90706 |
+| mtu                       | 0                                    |
+| name                      | ext                                  |
+| provider:network_type     | vlan                                 |
+| provider:physical_network | physnet1                             |
+| provider:segmentation_id  | 1                                    |
+| router:external           | True                                 |
+| shared                    | False                                |
+| status                    | ACTIVE                               |
+| subnets                   | 74ecfb25-05e2-4c5d-a412-72e32a08f7f4 |
+| tenant_id                 | 01062327b10040149de2bbbfd81d7aee     |
++---------------------------+--------------------------------------+
+[root@localhost ~(keystone_admin)]# neutron net-show int_net
++---------------------------+--------------------------------------+
+| Field                     | Value                                |
++---------------------------+--------------------------------------+
+| admin_state_up            | True                                 |
+| id                        | f42f1e2d-5783-4c75-9545-96ab67b7e28d |
+| mtu                       | 0                                    |
+| name                      | int_net                              |
+| provider:network_type     | vlan                                 |
+| provider:physical_network | physnet1                             |
+| provider:segmentation_id  | 2                                    |
+| router:external           | False                                |
+| shared                    | False                                |
+| status                    | ACTIVE                               |
+| subnets                   | 31487d7e-9b00-4408-8988-2a98ffdb7e67 |
+| tenant_id                 | 01062327b10040149de2bbbfd81d7aee     |
++---------------------------+--------------------------------------+
+
+
+
+
+[root@localhost ~(keystone_admin)]# nova show
+usage: nova show [--minimal] <server>
+error: too few arguments
+Try 'nova help show' for more information.
+[root@localhost ~(keystone_admin)]# nova show vm
++--------------------------------------+----------------------------------------------------------+
+| Property                             | Value                                                    |
++--------------------------------------+----------------------------------------------------------+
+| OS-DCF:diskConfig                    | AUTO                                                     |
+| OS-EXT-AZ:availability_zone          | nova                                                     |
+| OS-EXT-SRV-ATTR:host                 | localhost                                                |
+| OS-EXT-SRV-ATTR:hypervisor_hostname  | localhost                                                |
+| OS-EXT-SRV-ATTR:instance_name        | instance-00000032                                        |
+| OS-EXT-STS:power_state               | 1                                                        |
+| OS-EXT-STS:task_state                | -                                                        |
+| OS-EXT-STS:vm_state                  | active                                                   |
+| OS-SRV-USG:launched_at               | 2015-11-09T09:56:40.000000                               |
+| OS-SRV-USG:terminated_at             | -                                                        |
+| accessIPv4                           |                                                          |
+| accessIPv6                           |                                                          |
+| config_drive                         |                                                          |
+| created                              | 2015-11-09T09:56:33Z                                     |
+| flavor                               | m1.tiny (1)                                              |
+| hostId                               | 6492eff45e4ca2f21ffe9673375b277cb2981cadbd36fde15207a6b9 |
+| id                                   | d07f02d1-046d-4405-81c7-9a45349064c5                     |
+| image                                | vEPC (3a444d74-e85c-4a06-91c4-e6e53957baa9)              |
+| int_net network                      | 192.168.100.3, 10.19.14.242                              |
+| key_name                             | -                                                        |
+| metadata                             | {}                                                       |
+| name                                 | vm                                                       |
+| os-extended-volumes:volumes_attached | []                                                       |
+| progress                             | 0                                                        |
+| security_groups                      | default                                                  |
+| status                               | ACTIVE                                                   |
+| tenant_id                            | 01062327b10040149de2bbbfd81d7aee                         |
+| updated                              | 2015-11-09T09:56:40Z                                     |
+| user_id                              | 556ceb75178940f5baaa6188c7c23ef5                         |
++--------------------------------------+----------------------------------------------------------+
+
+
+
+[root@localhost ~(keystone_admin)]# neutron router-list
++--------------------------------------+----------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------+-------+
+| id                                   | name     | external_gateway_info                                                                                                                                                                    | distributed | ha    |
++--------------------------------------+----------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------+-------+
+| 6290eec4-460e-4770-8af7-9a53fd5b7b01 | router01 | {"network_id": "378d5641-ff76-4ea4-968d-41e5a3d90706", "enable_snat": true, "external_fixed_ips": [{"subnet_id": "74ecfb25-05e2-4c5d-a412-72e32a08f7f4", "ip_address": "10.19.14.243"}]} | False       | False |
++--------------------------------------+----------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------+-------+
+[root@localhost ~(keystone_admin)]# neutron router-show 6290eec4-460e-4770-8af7-9a53fd5b7b01
++-----------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Field                 | Value                                                                                                                                                                                    |
++-----------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| admin_state_up        | True                                                                                                                                                                                     |
+| distributed           | False                                                                                                                                                                                    |
+| external_gateway_info | {"network_id": "378d5641-ff76-4ea4-968d-41e5a3d90706", "enable_snat": true, "external_fixed_ips": [{"subnet_id": "74ecfb25-05e2-4c5d-a412-72e32a08f7f4", "ip_address": "10.19.14.243"}]} |
+| ha                    | False                                                                                                                                                                                    |
+| id                    | 6290eec4-460e-4770-8af7-9a53fd5b7b01                                                                                                                                                     |
+| name                  | router01                                                                                                                                                                                 |
+| routes                |                                                                                                                                                                                          |
+| status                | ACTIVE                                                                                                                                                                                   |
+| tenant_id             | 01062327b10040149de2bbbfd81d7aee                                                                                                                                                         |
++-----------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+
+
+
