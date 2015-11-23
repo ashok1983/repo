@@ -1,0 +1,265 @@
+vEPC Setup
+
+1.	Open stack Installation using packstack 
+Create repository for installation 
+1.	createrepo   . 
+2.	create file "/etc/yum.repos.d/local.repo" 
+[server]
+name=local-server
+baseurl=file:///root/Desktop/packages
+gpgcheck=0
+enabled=1	
+
+
+                    Command to Install Openstack 	
+1.	Yum install openstack-packstack  
+2.	Packstack –gen-answer-file  answer.txt 
+3.	Attached sample answer.txt file 
+
+ 
+
+a.	Modify the answer.txt file  
+b.	edit resolve.conf  with system ip  address
+c.	edit  /etc/hosts
+10.19.14.190 hostname
+
+4.	Packstack  --answer-file answer.txt 
+
+Open stack should install successfully without any error.
+URL to login Dashboard: 
+http://10.19.14.190/dashboard/auth/login/?next=/dashboard/
+ username: admin
+password: redhat	
+
+
+       Verify the openstack services running 
+ [root@ Desktop(keystone_admin)]# openstack-service status
+neutron-dhcp-agent (pid 7367) is active
+neutron-l3-agent (pid 7314) is active
+neutron-metadata-agent (pid 7315) is active
+neutron-openvswitch-agent (pid 6607) is active
+neutron-server (pid 7335) is active
+openstack-ceilometer-alarm-evaluator (pid 1461) is active
+openstack-ceilometer-alarm-notifier (pid 1459) is active
+openstack-ceilometer-api (pid 1460) is active
+openstack-ceilometer-central (pid 1458) is active
+openstack-ceilometer-collector (pid 1457) is active
+openstack-ceilometer-compute (pid 1277) is active
+openstack-ceilometer-notification (pid 1456) is active
+openstack-cinder-api (pid 1270) is active
+openstack-cinder-backup (pid 1271) is active
+openstack-cinder-scheduler (pid 1273) is active
+openstack-cinder-volume (pid 1272) is active
+openstack-glance-api (pid 1275) is active
+openstack-glance-registry (pid 1274) is active
+openstack-heat-api (pid 1303) is active
+openstack-heat-engine (pid 4443) is active
+openstack-losetup (pid 0) is active
+openstack-nova-api (pid 1276) is active
+openstack-nova-cert (pid 1282) is active
+openstack-nova-compute (pid 4187) is active
+openstack-nova-conductor (pid 1281) is active
+openstack-nova-consoleauth (pid 1279) is active
+openstack-nova-novncproxy (pid 1278) is active
+openstack-nova-scheduler (pid 1280) is active
+openstack-swift-account-auditor (pid 1290) is active
+openstack-swift-account-reaper (pid 1289) is active
+openstack-swift-account-replicator (pid 1295) is active
+openstack-swift-account (pid 1298) is active
+openstack-swift-container-auditor (pid 1292) is active
+openstack-swift-container-replicator (pid 1291) is active
+openstack-swift-container-updater (pid 1301) is active
+openstack-swift-container (pid 1296) is active
+openstack-swift-object-auditor (pid 1293) is active
+openstack-swift-object-replicator (pid 1300) is active
+openstack-swift-object-updater (pid 1294) is active
+openstack-swift-object (pid 1299) is active
+openstack-swift-proxy (pid 1297) is active	
+
+
+1.	Network configuration
+ovs-vsctl add-br br-eth1 
+ovs-vsctl  add-br br-eth2 
+# add a bridge
+ovs-vsctl add-port br-eth1 eno1 
+ovs-vsctl add-port br-eth2 enp1s0f0
+# add eth1 to the port of the bridge above
+root@network:~# 
+
+Update following files 
+
+      /etc/neutron/plugins/ml2/ml2_conf.ini
+ [ml2]	
+
+type_drivers = flat,vlan,gre,vxlan
+tenant_network_types = vxlan,vlan
+mechanism_drivers = openvswitch
+
+[ml2_type_flat]
+flat_networks = physnet1,physnet2
+
+[ovs]
+bridge_mappings = physnet1:br-eth1,physnet2:br-eth2
+
+
+      /etc/neutron/plugins/openvswitch/ovs_neutron_plugin.ini	
+
+# Example: bridge_mappings = physnet1:br-eth1
+bridge_mappings = physnet1:br-eth1,physnet2:br-eth2
+       
+      Restart the neutron  service 
+root@network:~# service neutron-plugin-openvswitch-agent restart 
+neutron-plugin-openvswitch-agent stop/waiting
+neutron-plugin-openvswitch-agent start/running, process 5682
+      
+Attached Sample ml2_conf.ini  and ovs_neutron_plugin.ini
+		 
+		 
+ 
+2.	Network creation 
+ root@dlp ~(keystone)# neutron net-create  ext --shared --provider:network_type flat  -- provider:physical_network physnet1     
+ 
+
+ 
+root@dlp ~(keystone)# neutron net-create  external --shared --provider:network_type flat  -- provider:physical_network physnet2     
+
+     
+ 
+
+ 
+3.	Network script files
+     Filename: ifcfg-br-eth1
+DEVICE=br-eth1
+OVSBOOTPROTO=static
+ONBOOT=yes
+TYPE=OVSBridge	
+DEVICETYPE=ovs
+IPADDR=10.19.14.190
+NETMASK=255.255.255.0
+GATEWAY=10.19.14.254
+MACADDR=74:46:A0:B3:3E:E4	
+
+      Filename: ifcfg-eno1
+TYPE=Ethernet
+NAME=eno1
+DEVICE=eno1
+ONBOOT=yes
+DEVICETYPE=ovs
+OVS_BRIDGE=br-eth1	
+	
+     Filename: ifcfg-br-eth2
+DEVICE=br-eth2
+OVSBOOTPROTO=static
+ONBOOT=yes
+TYPE=OVSBridge
+DEVICETYPE=ovs
+IPADDR=180.168.0.10
+NETMASK=255.255.255.0
+GATEWAY=180.168.0.1
+MACADDR=00:07:E9:B5:F1:10	
+
+      Filename: ifcfg-enp1s0f0
+TYPE=Ethernet
+NAME=enp1s0f0
+DEVICE=enp1s0f0
+ONBOOT=yes
+DEVICETYPE=ovs
+OVS_BRIDGE=br-eth2	
+
+
+
+4.	Ovs-bridge configuration
+ovs-vsctl show
+82ae4cf4-4a2f-483a-b50f-fec1b56ab766
+    Bridge br-int
+        fail_mode: secure
+        Port patch-tun
+            Interface patch-tun
+                type: patch
+                options: {peer=patch-int}
+        Port "tapbf67e666-ff"
+            tag: 4095
+            Interface "tapbf67e666-ff"
+                type: internal
+        Port "tap4dc2d6c3-7e"
+            tag: 4095
+            Interface "tap4dc2d6c3-7e"
+                type: internal
+        Port "int-br-eth2"
+            Interface "int-br-eth2"
+                type: patch
+                options: {peer="phy-br-eth2"}
+        Port br-int
+            Interface br-int
+                type: internal
+        Port "qvob8947511-09"
+            tag: 6
+            Interface "qvob8947511-09"
+        Port "int-br-eth1"
+            Interface "int-br-eth1"
+                type: patch
+                options: {peer="phy-br-eth1"}
+        Port "qvof7b6ad06-50"
+            tag: 5
+            Interface "qvof7b6ad06-50"
+    Bridge br-tun
+        fail_mode: secure
+        Port patch-int
+            Interface patch-int
+                type: patch
+                options: {peer=patch-tun}
+        Port br-tun
+            Interface br-tun
+                type: internal
+
+
+
+
+    Bridge "br-eth1"	
+        Port "phy-br-eth1"
+            Interface "phy-br-eth1"
+                type: patch
+                options: {peer="int-br-eth1"}
+        Port "eno1"
+            Interface "eno1"
+        Port "br-eth1"
+            Interface "br-eth1"
+                type: internal
+    Bridge "br-eth2"
+        Port "enp1s0f0"
+            Interface "enp1s0f0"
+        Port "phy-br-eth2"
+            Interface "phy-br-eth2"
+                type: patch
+                options: {peer="int-br-eth2"}
+        Port "br-eth2"
+            Interface "br-eth2"
+                type: internal
+    ovs_version: "2.3.1-git3282e51"
+[root@ ~(keystone_admin)]#
+
+
+
+
+
+5.	EPC Configuration 
+
+1.	Upload the vEPC image  to openstack glance 
+2.	Command to create image using glance 
+[root] glance image-create --name "vEPC"  --disk-format=qcow2 --container-format=bare --file EPC.qcow 
+    
+ 
+
+Create Nova instance using the vEPC image 
+
+nova boot --flavor 3 --image vEPC --security_group default --nic net-id=ext net-id=external vEPC_instance
+
+
+Add the ip address to the instance 
+	
+nova add-fixed-ip  <server-id> <net-id> 
+
+nova add-fixed-ip  ba9f8db6-c1cf-4635-92f3-13d83ccb22f1 aebf61e4-aa29-4aec-b94a-c0c5c7f48167
+
+
+ 
