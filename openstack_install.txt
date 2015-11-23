@@ -1,0 +1,17 @@
+Open Stack Installation Using Packsack
+
+1.	Create Repository with REHL Open stack Packages
+•	mkdir  openstack
+•	Copy the  RedHat Package to directory openstack
+•	Run Command 
+a.	createrepo   .   (to create database for rpm)
+
+2.	Install Packstack puppet tool
+•	Run Command 
+•	Yum –y install openstack-packstack 
+Verify the packstack command is present in /usr/bin/ 
+3.	Install OpenStack Packages
+Generate the answer-file using below command
+Packstack  --gen –answer-file = answer.txt  
+Attach answer.txt 
+Update the required parameter in ansser.txt 
