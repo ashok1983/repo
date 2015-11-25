@@ -1,0 +1,48 @@
+1. create evn.yaml and following line
+resource_registry:
+    "OS::Nova::Server::Cirros": "cirros.yaml"
+
+2. carere cirros.yaml and add following line
+
+heat_template_version: 2014-10-16
+description: A simple server.
+resources:
+  server:
+    type: OS::Nova::Server
+    properties:
+      image: vEPC
+      flavor: m1.tiny
+      key_name: demo
+      name: demo_vm
+      networks:
+        - network: APPS_NET
+
+
+Run commnd to craet heat stack.
+1.heat stack-create simple -f demo.yaml -e env.yaml
+2. 
+[root@localhost heat(keystone_admin)]# ceilometer alarm-list
++--------------------------------------+------------------------------------+-------+----------+---------+------------+--------------------------------+------------------+
+| Alarm ID                             | Name                               | State | Severity | Enabled | Continuous | Alarm condition                | Time constraints |
++--------------------------------------+------------------------------------+-------+----------+---------+------------+--------------------------------+------------------+
+| ddc70ca5-5f84-4f0d-9c78-13569c647490 | simple-cpu_alarm_high-hbsv2e243ctc | ok    | low      | True    | True       | cpu_util > 15.0 during 1 x 30s | None             |
+| e07f5c2c-860b-4a0b-875f-cd7e1769ecc2 | simple-cpu_alarm_low-fdg35riu6ifq  | alarm | low      | True    | True       | cpu_util < 10.0 during 1 x 30s | None             |
++--------------------------------------+------------------------------------+-------+----------+---------+------------+--------------------------------+------------------+
+
+3. [root@localhost heat(keystone_admin)]# ceilometer alarm-history e07f5c2c-860b-4a0b-875f-cd7e1769ecc2
++------------------+----------------------------+----------------------------------------------------------------------+
+| Type             | Timestamp                  | Detail                                                               |
++------------------+----------------------------+----------------------------------------------------------------------+
+| state transition | 2015-11-25T06:54:56.690000 | state: alarm                                                         |
+| state transition | 2015-11-25T06:46:56.507000 | state: insufficient data                                             |
+| state transition | 2015-11-25T06:45:56.619000 | state: ok                                                            |
+| state transition | 2015-11-25T06:43:56.506000 | state: insufficient data                                             |
+| state transition | 2015-11-25T06:42:56.499000 | state: ok                                                            |
+| state transition | 2015-11-25T06:41:56.445000 | state: insufficient data                                             |
+| state transition | 2015-11-25T06:39:56.563000 | state: alarm                                                         |
+| creation         | 2015-11-25T06:38:54.504000 | name: simple-cpu_alarm_low-fdg35riu6ifq                              |
+|                  |                            | description: Alarm when cpu_util is lt a avg of 10.0 over 30 seconds |
+|                  |                            | type: threshold                                                      |
+|                  |                            | rule: cpu_util < 10.0 during 1 x 30s                                 |
+|                  |                            | time_constraints: None                                               |
++------------------+----------------------------+----------------------------------------------------------------------+
